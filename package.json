@@ -1,0 +1,14 @@
+{
+  "name": "ixd-shift-bot",
+  "version": "1.0.0",
+  "description": "IXD Shift Block Report Bot for Slack",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "@slack/bolt": "^3.17.0",
+    "@anthropic-ai/sdk": "^0.20.0",
+    "dotenv": "^16.0.0"
+  }
+}

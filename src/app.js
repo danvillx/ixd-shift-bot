@@ -163,27 +163,22 @@ async function generateQSummary(blockLabel, blockTime, notes) {
   const vocabCtx = buildVocabContext(vocab);
   const isLast = BLOCK_SCHEDULE[blockLabel].isLast;
 
-  const prompt = `${BUILDING_CONTEXT}\n\n${vocabCtx}\n\n
-=== TASK ===
-Write a Q-block summary for ${blockLabel} (${blockTime}) based ONLY on these notes:
-${notes}
+  // Match output length to input length — short input = short output
+  const noteLength = notes.replace(/\s+/g, ' ').trim().length;
+  const isShort = noteLength < 80;
 
-=== FORMAT ===
-- 2 short paragraphs, 4–8 sentences TOTAL
-- Paragraph 1: what happened this Q
-- Paragraph 2: what resolved + one watch item${isLast ? ' for day shift' : ''}
-- No headers, no bullets, no field names like "Barriers:" or "Wins:"
-- NEVER say "carry this momentum", "required intervention", "environment", "kickoff"
-- Do NOT assume anything not in the notes
-- If notes are minimal, write a short clean summary — do not invent details`;
+  const lengthRule = isShort
+    ? '- The notes are SHORT. Write ONE paragraph, 2–3 sentences MAX. Do NOT pad or add filler.'
+    : `- Write 2 short paragraphs, 4–6 sentences TOTAL. Paragraph 1: what happened. Paragraph 2: resolution + one watch item${isLast ? ' for day shift' : ''}.`;
+
+  const prompt = `${BUILDING_CONTEXT}\n\n${vocabCtx}\n\n=== TASK ===\nWrite a Q-block summary for ${blockLabel} (${blockTime}) based ONLY on these notes:\n${notes}\n\n=== LENGTH RULE (STRICT) ===\n${lengthRule}\n${isLast ? '- Include a brief heads up for day shift at the end.' : ''}\n\n=== RULES ===\n- Match the level of detail in the notes exactly — do NOT expand short notes into long summaries\n- No headers, no bullets, no field names like "Barriers:" or "Wins:"\n- NEVER say "carry this momentum", "required intervention", "environment", "kickoff"\n- Do NOT assume anything not in the notes\n- Do NOT invent details, pad sentences, or add generic filler\n- First person plural throughout`;
 
   const res = await anthropic.messages.create({
-    model: MODEL, max_tokens: 300,
+    model: MODEL, max_tokens: 200,
     messages: [{ role: 'user', content: prompt }],
   });
   return res.content[0].text.trim();
 }
-
 async function fixGrammar(text) {
   if (!text || text.length < 3) return text;
   try {
@@ -265,6 +260,10 @@ app.command('/qreport', async ({ ack, body, client }) => {
           label: { type: 'plain_text', text: 'OB Shift Goal' },
           element: { type: 'plain_text_input', action_id: 'goal_ob_input',
             placeholder: { type: 'plain_text', text: 'e.g. 100k or 100,000' } } },
+        { type: 'input', block_id: 'schedule_time', optional: true,
+          label: { type: 'plain_text', text: '⏰ Schedule Post (optional)' },
+          element: { type: 'plain_text_input', action_id: 'schedule_time_input',
+            placeholder: { type: 'plain_text', text: 'e.g. 9:30pm or 21:30 — leave blank to post now' } } },
       ],
     },
   });
@@ -289,6 +288,25 @@ app.view('qreport_modal', async ({ ack, body, view, client }) => {
   const goalIB         = v.goal_ib?.goal_ib_input?.value || '';
   const volumeOB       = v.volume_ob?.volume_ob_input?.value || '';
   const goalOB         = v.goal_ob?.goal_ob_input?.value || '';
+  const scheduleRaw    = v.schedule_time?.schedule_time_input?.value || '';
+
+  // Parse schedule time if provided
+  let postAt = null;
+  if (scheduleRaw) {
+    try {
+      const now = new Date();
+      const [timePart, ampm] = scheduleRaw.trim().toLowerCase().replace('.', '').split(/(am|pm)/);
+      const [hStr, mStr] = timePart.trim().split(':');
+      let hours = parseInt(hStr, 10);
+      const mins = parseInt(mStr || '0', 10);
+      if (ampm === 'pm' && hours !== 12) hours += 12;
+      if (ampm === 'am' && hours === 12) hours = 0;
+      const scheduled = new Date(now);
+      scheduled.setHours(hours, mins, 0, 0);
+      if (scheduled <= now) scheduled.setDate(scheduled.getDate() + 1); // next day if past
+      postAt = Math.floor(scheduled.getTime() / 1000);
+    } catch { postAt = null; }
+  }
 
   await Promise.all(targetChannels.map(ch =>
     client.chat.postMessage({ channel: ch, text: `⏳ Generating *${blockLabel} Block Report*... hang tight!` })
@@ -336,9 +354,19 @@ app.view('qreport_modal', async ({ ack, body, view, client }) => {
       `_IXD Shift Bot • Generated ${timeStr}_`,
     ].join('\n');
 
-    await Promise.all(targetChannels.map(ch =>
-      client.chat.postMessage({ channel: ch, text: report, mrkdwn: true })
-    ));
+    if (postAt) {
+      await Promise.all(targetChannels.map(ch =>
+        client.chat.scheduleMessage({ channel: ch, text: report, post_at: postAt, mrkdwn: true })
+      ));
+      const scheduledTime = new Date(postAt * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      await Promise.all(targetChannels.map(ch =>
+        client.chat.postMessage({ channel: ch, text: `⏰ *${blockLabel} Block Report scheduled for ${scheduledTime}*`, mrkdwn: true })
+      ));
+    } else {
+      await Promise.all(targetChannels.map(ch =>
+        client.chat.postMessage({ channel: ch, text: report, mrkdwn: true })
+      ));
+    }
     extractAndUpdateVocab(notes);
   } catch (err) {
     console.error('[/qreport] Error:', err);

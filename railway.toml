@@ -1,0 +1,8 @@
+# railway.toml — DBot 1.5 Railway deployment config
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "node src/app.js"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

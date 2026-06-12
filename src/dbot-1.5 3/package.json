@@ -1,0 +1,22 @@
+{
+  "name": "dbot-ixd-shift-bot",
+  "version": "1.5.0",
+  "description": "DBot 1.5 - TEB9 IXD Amazon Shift Operations Bot",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js"
+  },
+  "dependencies": {
+    "@slack/bolt": "^3.17.0",
+    "@anthropic-ai/sdk": "^0.29.0",
+    "dotenv": "^16.4.5",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
